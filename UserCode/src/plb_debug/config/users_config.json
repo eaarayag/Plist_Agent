@@ -1,0 +1,28 @@
+{
+    "favorites": {
+        "rafaelja": {
+            "Username": "Guest (Default)",
+            "Project": "CWF",
+            "Die": "Top Die"
+        }
+    },
+    "users": {
+        "Guest (Default)": {
+            "PListDebugFolder": "NA",
+            "BundleFolder": "NA",
+            "Project": "CWF",
+            "Die": "Top Die"
+        }
+    },
+    "definitions": {
+        "Projects": [
+            "CWF"
+        ],
+        "Dies": {
+            "CWF": [
+                "Top Die",
+                "Base Die"
+            ]
+        }
+    }
+}
