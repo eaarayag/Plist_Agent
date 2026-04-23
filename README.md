@@ -1,14 +1,14 @@
 # Plist Agent — Collaborative Repository
 
-This repository hosts **console applications, agents, and tools** developed collaboratively across the organization.
+This repository hosts **console applications and tools** developed collaboratively across the organization.
 
 ## Repository Structure
 
 ```
 .
-├── agents/       # Autonomous agent projects
+├── .github/
+│   └── agents/   # Workspace custom Copilot agents (.agent.md)
 ├── docs/         # Repository-wide documentation and contribution guidelines
-├── functions/    # Reusable function libraries
 ├── UserCode/     # Standard project skeleton (start here for new projects)
 └── README.md
 ```
