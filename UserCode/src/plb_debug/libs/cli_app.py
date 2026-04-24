@@ -12,7 +12,9 @@ Contains:
 import os
 import re
 import sys
+import time
 import getpass
+from itertools import permutations as _permutations
 
 from libs.Extractor  import Extractor
 from libs.Finder     import Finder
@@ -345,132 +347,380 @@ def _do_extract(app, mode):
         print(f"    ... ({len(lines) - 25} more not shown)")
 
 
+# ─── Directory resolver ──────────────────────────────────────────────────────
+
+def _resolve_dir(unix_path: str) -> str | None:
+	"""
+	Resolve a Unix-style directory path to a Windows path.
+	Mirrors resolve_plist_path() logic but checks isdir instead of isfile.
+	"""
+	normalized = unix_path.strip().replace("/", "\\")
+	if os.path.isdir(normalized):
+		return normalized
+
+	parts = [p for p in normalized.split("\\") if p]
+	letters = ["I"] + [chr(c) for c in range(ord("A"), ord("Z") + 1) if chr(c) != "I"]
+
+	for start_idx in range(len(parts)):
+		tail = "\\".join(parts[start_idx:])
+		for letter in letters:
+			candidate = f"{letter}:\\{tail}"
+			if os.path.isdir(candidate):
+				return candidate
+	return None
+
+
+def _find_latest_patch(unix_base_path: str) -> str | None:
+	"""
+	Return the name of the highest-numbered 'pN' subdirectory under
+	unix_base_path (e.g. returns 'p27' when p1..p27 exist).
+	"""
+	resolved = _resolve_dir(unix_base_path)
+	if not resolved:
+		return None
+	try:
+		entries = os.listdir(resolved)
+	except OSError:
+		return None
+	patches = []
+	for e in entries:
+		m = re.match(r'^p(\d+)$', e, re.IGNORECASE)
+		if m and os.path.isdir(os.path.join(resolved, e)):
+			patches.append((int(m.group(1)), e))
+	if not patches:
+		return None
+	return max(patches)[1]
+
+
+def _find_plist_in_dir(unix_dir_path: str, use_debug: bool) -> str | None:
+	"""
+	Find the appropriate .plist file inside unix_dir_path.
+	  use_debug=True  (sSs/io)  → file whose name matches regex 'cc_debug'
+	  use_debug=False (sEs/ie)  → first .plist file whose name does NOT match 'cc_debug'
+	"""
+	resolved = _resolve_dir(unix_dir_path)
+	if not resolved:
+		return None
+	try:
+		entries = os.listdir(resolved)
+	except OSError:
+		return None
+	plist_files = [e for e in entries if e.lower().endswith(".plist")]
+	if use_debug:
+		for f in plist_files:
+			if re.search(r'cc_debug', f, re.IGNORECASE):
+				return f
+	else:
+		for f in plist_files:
+			if not re.search(r'cc_debug', f, re.IGNORECASE):
+				return f
+	return None
+
+
+def _guided_plist_path() -> str | None:
+	"""
+	Guide the user through questions A / B / C to build the source .plist path.
+
+	  [A] Core (MscnCoreXCC) or Uncore (MscnCdXCC)
+	  [B] Latest patch or specific patch (e.g. p26)
+	  [C] sSs/io (cc_debug file) or sEs/ie (non-cc_debug file)
+
+	Returns the resolved Unix-style path string, or None on failure.
+	"""
+	# ── [A] Core / Uncore ───────────────────────────────────────────────────
+	print()
+	print("  ¿El contenido es de Core o Uncore?")
+	print("    1 — Core")
+	print("    2 — Uncore")
+	while True:
+		choice_a = input("  Selección [1/2]: ").strip()
+		if choice_a == "1":
+			folder_a = "MscnCoreXCC"
+			break
+		elif choice_a == "2":
+			folder_a = "MscnCdXCC"
+			break
+		print("  Opción inválida, ingresa 1 o 2.")
+
+	base_path = f"/intel/hdmxpats/cwf/{folder_a}/RevTCB0.0"
+
+	# ── [B] Patch version ───────────────────────────────────────────────────
+	print()
+	print(f"  Path base: {base_path}/")
+	print("  ¿Qué patch usar?")
+	print("    Enter → Latest (el más reciente disponible)")
+	print("    o escribe el patch específico (ej: p26)")
+	patch_input = input("  Patch: ").strip()
+
+	if not patch_input:
+		print("  Buscando el latest patch...", end=" ", flush=True)
+		folder_b = _find_latest_patch(base_path)
+		if not folder_b:
+			print(f"\n  [ERROR] No se pudo determinar el latest patch en: {base_path}")
+			return None
+		print(f"encontrado: {folder_b}")
+	else:
+		folder_b = patch_input
+
+	plb_base = f"{base_path}/{folder_b}/plb"
+
+	# ── [C] sSs / sEs ───────────────────────────────────────────────────────
+	print()
+	print("  ¿Tipo de contenido?")
+	print("    1 — sSs / io  (Input/Output)")
+	print("    2 — sEs / ie  (Input/Expect)")
+	while True:
+		choice_c = input("  Selección [1/2]: ").strip()
+		if choice_c in ("1", "2"):
+			break
+		print("  Opción inválida, ingresa 1 o 2.")
+
+	use_debug = (choice_c == "1")
+	print(f"  Buscando archivo .plist en: {plb_base}/...", end=" ", flush=True)
+	plist_file = _find_plist_in_dir(plb_base, use_debug=use_debug)
+	if not plist_file:
+		print(f"\n  [ERROR] No se encontró un archivo .plist adecuado en: {plb_base}")
+		return None
+	print(f"encontrado: {plist_file}")
+
+	full_path = f"{plb_base}/{plist_file}"
+	print(f"\n  → Fuente seleccionada: {full_path}")
+	return full_path
+
+
+def _smart_search(app, terms_groups: list[list[str]]) -> int:
+	"""
+	For each group of terms, try every permutation of the combined wildcard
+	until matches are found.  Falls back to per-term individual searches if
+	no permutation yields results.
+
+	Returns the total number of lines extracted across all groups.
+	"""
+	all_extracted: list[str] = []
+
+	for g_idx, terms in enumerate(terms_groups, 1):
+		print(f"\n  Grupo {g_idx}/{len(terms_groups)}: {terms}")
+		group_matched = False
+
+		# ── Try every permutation of the combined wildcard ────────────────
+		perms = list(_permutations(terms))
+		for perm in perms:
+			pattern = "*" + "*".join(perm) + "*"
+			print(f"    Probando patrón: {pattern!r} ...", end=" ", flush=True)
+
+			app.Plist_file_viewer_text_area.delete("1.0")
+			app.Plist_file_viewer_text_area.insert("1.0", app.content)
+			app.Selected_PList_extract_text_area.delete("1.0")
+			app.matches = []
+			app.current_index = 0
+
+			app.search_filter_user_input_text.set(pattern)
+			app.Find_matches_search_main_global_PList()
+
+			if app.matches:
+				print(f"{len(app.matches)} coincidencia(s)")
+				app.Extract_selected_matches()
+				new_lines = app.Selected_PList_extract_text_area.lines()
+				all_extracted.extend(new_lines)
+				group_matched = True
+				break
+			else:
+				print("sin coincidencias")
+
+		# ── Fallback: search each term individually ───────────────────────
+		if not group_matched:
+			print(f"    Ninguna permutación tuvo resultados. Buscando por término individual...")
+			for term in terms:
+				pattern = f"*{term}*"
+				print(f"    Probando: {pattern!r} ...", end=" ", flush=True)
+
+				app.Plist_file_viewer_text_area.delete("1.0")
+				app.Plist_file_viewer_text_area.insert("1.0", app.content)
+				app.Selected_PList_extract_text_area.delete("1.0")
+				app.matches = []
+				app.current_index = 0
+
+				app.search_filter_user_input_text.set(pattern)
+				app.Find_matches_search_main_global_PList()
+
+				if app.matches:
+					print(f"{len(app.matches)} coincidencia(s)")
+					app.Extract_selected_matches()
+					new_lines = app.Selected_PList_extract_text_area.lines()
+					all_extracted.extend(new_lines)
+				else:
+					print("sin coincidencias")
+					print(f"    ⚠️  Sin coincidencias para '{term}'. Verifica que el término exista en el plist.")
+
+	# ── Consolidate all extracted lines back into the text area ──────────────
+	app.Selected_PList_extract_text_area.delete("1.0")
+	if all_extracted:
+		app.Selected_PList_extract_text_area.insert("1.0", "\n".join(all_extracted))
+
+	return len(all_extracted)
+
+
 # ─── Interactive CLI flow ─────────────────────────────────────────────────────
 
 def run(argv=None):
-    print("=" * 60)
-    print("   PLB DEBUG TOOL — CLI Mode")
-    print("   (wraps Extractor · Finder · Generator)")
-    print("=" * 60)
+	print("=" * 60)
+	print("   PLB DEBUG TOOL — CLI Mode")
+	print("   (wraps Extractor · Finder · Generator)")
+	print("=" * 60)
 
-    app = CLIApp()
+	start_time = time.time()
+	app = CLIApp()
 
-    # ── Step 1 · Open .plist file ─────────────────────────────────────────────
-    _header("Step 1 · Open PList file")
+	# ── Step 1 · Open .plist file ─────────────────────────────────────────────
+	_header("Step 1 · Archivo .plist de origen")
 
-    default_plist = (argv[0] if argv else "") or "scan_uncore_class_xdccap.plist"
+	plist_path = None
 
-    while True:
-        raw_path = _ask("PList file path", default_plist)
-        resolved = resolve_plist_path(raw_path)
-        if resolved:
-            plist_path = resolved
-            break
-        print(f"\n[ERROR] File not found: {raw_path}")
-        print("        Accepted formats:")
-        print("          scan_foo.plist                              (local / relative)")
-        print("          I:\\hdmxpats\\cwf\\...\\foo.plist              (Windows drive path)")
-        print("          /intel/hdmxpats/cwf/.../foo.plist           (Unix-style path)")
-        print("          /nfs/cr/disks/mfg_.../hdmxpats/.../foo.plist")
-        if _ask("\n  Try a different path? [Y/n]", "y").lower() == "n":
-            sys.exit(1)
-        default_plist = raw_path  # keep last attempt as default
+	# If a path was passed via argv, try it first
+	if argv and argv[0]:
+		resolved = resolve_plist_path(argv[0])
+		if resolved:
+			plist_path = resolved
+			print(f"  Usando: {plist_path}")
 
-    app.load_file(plist_path)
+	# If we still have no path, guide the user
+	if not plist_path:
+		print()
+		print("  No se proporcionó un archivo .plist de origen.")
+		print("  Puedes escribir la ruta directamente o dejar que el asistente la construya.")
+		print()
+		print("    1 — Escribir la ruta manualmente")
+		print("    2 — Guiarme para construir la ruta")
+		while True:
+			choice = input("  Selección [1/2]: ").strip()
+			if choice == "1":
+				while True:
+					raw_path = input("  Ruta del .plist: ").strip()
+					resolved = resolve_plist_path(raw_path)
+					if resolved:
+						plist_path = resolved
+						break
+					print(f"\n  [ERROR] Archivo no encontrado: {raw_path!r}")
+					print("  Formatos aceptados:")
+					print("    scan_foo.plist                         (local / relativo)")
+					print("    I:\\hdmxpats\\cwf\\...\\foo.plist          (Windows)")
+					print("    /intel/hdmxpats/cwf/.../foo.plist      (Unix / red)")
+					if input("\n  ¿Intentar de nuevo? [S/n]: ").strip().lower() == "n":
+						sys.exit(1)
+				break
+			elif choice == "2":
+				while True:
+					guided = _guided_plist_path()
+					if guided:
+						resolved = resolve_plist_path(guided)
+						if resolved:
+							plist_path = resolved
+							break
+					print("  No se pudo resolver el path. Intentemos de nuevo.")
+				break
+			else:
+				print("  Opción inválida, ingresa 1 o 2.")
 
-    # ── Step 2 · Search + extract loop ───────────────────────────────────────
-    _header("Step 2 · Search & Extract")
-    print("  Tip: you can do multiple searches and accumulate results.")
+	app.load_file(plist_path)
 
-    last_mode = "1"
+	# ── Step 2 · Contenido a buscar ───────────────────────────────────────────
+	_header("Step 2 · Contenido a buscar")
+	print("  Ingresa los términos de búsqueda.")
+	print("  · Separa términos con espacios dentro de un grupo.")
+	print("  · Separa grupos con coma (,) para múltiples búsquedas acumuladas.")
+	print("  Ejemplo:  inf ddimbc4r0 atpg ph1, inf ddimbc4r0 atpg ph2, inf ddimbc4r0 atpg ph3")
+	print()
 
-    while True:
-        last_mode = _do_search(app)
-        _show_matches(app)
+	while True:
+		raw_content = input("  Contenido: ").strip()
+		if raw_content:
+			break
+		print("  Debes ingresar al menos un término.")
 
-        if not app.matches:
-            if _ask("\n  No matches. Try a different search? [y/n]", "y").lower() != "y":
-                break
-            # Reset viewer for a fresh search
-            app.Plist_file_viewer_text_area.delete("1.0")
-            app.Plist_file_viewer_text_area.insert("1.0", app.content)
-            app.matches = []
-            app.current_index = 0
-            continue
+	# Parse comma-separated groups, each group is a list of whitespace-split terms
+	groups_raw   = [g.strip() for g in raw_content.split(",") if g.strip()]
+	terms_groups = [g.split() for g in groups_raw]
 
-        if _ask("\n  Extract all matches? [Y/n]", "y").lower() != "n":
-            _do_extract(app, last_mode)
+	print(f"\n  {len(terms_groups)} grupo(s) detectado(s):")
+	for i, terms in enumerate(terms_groups, 1):
+		print(f"    [{i}] {' · '.join(terms)}")
 
-        if _ask("\n  Append & do another search? [y/n]", "n").lower() == "y":
-            # Preserve extracted content before next search
-            cur = app.Selected_PList_extract_text_area.get().strip()
-            if cur:
-                app.appended_plist_content = (
-                    (app.appended_plist_content + "\n" + cur).strip()
-                )
-                print("  Selection saved. Starting next search…")
-            # Reset viewer
-            app.Plist_file_viewer_text_area.delete("1.0")
-            app.Plist_file_viewer_text_area.insert("1.0", app.content)
-            app.matches = []
-            app.current_index = 0
-        else:
-            break
+	total_extracted = _smart_search(app, terms_groups)
 
-    # ── Step 3 · Options ──────────────────────────────────────────────────────
-    _header("Step 3 · Options")
+	if total_extracted == 0:
+		print("\n  [ERROR] No se encontraron coincidencias. Verifica los términos e intenta de nuevo.")
+		sys.exit(1)
 
-    inc = _ask("Include PreBurstPList? [Y/n]", "y")
-    app.include_preburst.set(inc.lower() != "n")
+	print(f"\n  Total de líneas extraídas: {total_extracted}")
 
-    print()
-    print("  PList name suffix:")
-    print("    Press Enter → uses 'debug' as suffix  (default)")
-    print("    Type a word → uses that as custom suffix")
-    custom_suffix = input("  Suffix: ").strip()
+	# ── Step 3 · Opciones ─────────────────────────────────────────────────────
+	_header("Step 3 · Opciones")
 
-    if custom_suffix:
-        app.use_debug_default.set(False)
-        app.custom_name_plb.set(custom_suffix)
-        effective_suffix = custom_suffix
-    else:
-        app.use_debug_default.set(True)
-        app.custom_name_plb.set("")
-        effective_suffix = "debug"
+	inc = _ask("¿Incluir PreBurstPList (hotreset)? [S/n]", "s")
+	app.include_preburst.set(inc.lower() != "n")
 
-    # ── Step 4 · Output path ──────────────────────────────────────────────────
-    _header("Step 4 · Output file")
+	print()
+	print("  Sufijo para el nombre del archivo de salida:")
+	print("    Enter → usa 'debug' como sufijo  (por defecto)")
+	print("    Escribe una palabra → sufijo personalizado")
+	custom_suffix = input("  Sufijo: ").strip()
 
-    stem        = os.path.splitext(os.path.basename(plist_path))[0]
-    default_out = os.path.join(".", f"{stem}_{effective_suffix}.plist")
-    out_path    = _ask("Output file path", default_out)
+	if custom_suffix:
+		app.use_debug_default.set(False)
+		app.custom_name_plb.set(custom_suffix)
+		effective_suffix = custom_suffix
+	else:
+		app.use_debug_default.set(True)
+		app.custom_name_plb.set("")
+		effective_suffix = "debug"
 
-    app.output_file_path = out_path
+	# ── Step 4 · Ruta de salida ───────────────────────────────────────────────
+	_header("Step 4 · Archivo de salida")
 
-    # ── Step 5 · Generate ─────────────────────────────────────────────────────
-    _header("Step 5 · Generating")
+	stem         = os.path.splitext(os.path.basename(plist_path))[0]
+	current_dir  = os.path.abspath(".")
+	default_out  = os.path.join(current_dir, f"{stem}_{effective_suffix}.plist")
 
-    ok = app.generate()
+	print(f"  Directorio actual: {current_dir}")
+	print(f"  Archivo por defecto: {default_out}")
+	print()
+	print("  ¿Dónde guardar el archivo?")
+	print("    Enter → guardar en el directorio actual (por defecto)")
+	print("    o escribe la ruta deseada (Windows o Unix)")
+	raw_out = input("  Ruta de salida: ").strip()
 
-    if not ok:
-        print("\n  Generation failed. See errors above.")
-        sys.exit(1)
+	if raw_out:
+		# Accept Unix-style paths too
+		win_out = raw_out.replace("/", "\\")
+		out_path = win_out
+	else:
+		out_path = default_out
 
-    # ── Usage log ─────────────────────────────────────────────────────────────
-    try:
-        search_text = (
-            app.search_filter_user_input_text.get()
-            or app.search_filter_user_input_text_tab2.get()
-        )
-        append_usage_log(
-            username    = getpass.getuser(),
-            plb_name    = os.path.basename(out_path),
-            search_text = search_text,
-            mtpl_file   = os.path.basename(plist_path),
-        )
-    except Exception:
-        pass  # Never block user on logging
+	app.output_file_path = out_path
 
-    print(f"\n  Done! File saved to:")
-    print(f"  {os.path.abspath(out_path)}")
-    print()
+	# ── Step 5 · Generar ──────────────────────────────────────────────────────
+	_header("Step 5 · Generando")
+
+	ok = app.generate()
+
+	if not ok:
+		print("\n  La generación falló. Revisa los errores anteriores.")
+		sys.exit(1)
+
+	# ── Usage log ─────────────────────────────────────────────────────────────
+	try:
+		search_text = " | ".join(" ".join(g) for g in terms_groups)
+		append_usage_log(
+			username    = getpass.getuser(),
+			plb_name    = os.path.basename(out_path),
+			search_text = search_text,
+			mtpl_file   = os.path.basename(plist_path),
+		)
+	except Exception:
+		pass  # Never block user on logging
+
+	elapsed = time.time() - start_time
+	print(f"\n  ✓ Archivo guardado en:")
+	print(f"  {os.path.abspath(out_path)}")
+	print(f"\n  ⏱  Tiempo de ejecución: {elapsed:.2f}s")
+	print()
