@@ -1,0 +1,8 @@
+Version 5.0;
+
+
+GlobalPList endgracefully_Mscn_hvm400RPT8x_Cdie_global_scan_dts_monitor [Flatten] {
+   Pat d7292929W9878127K_Ia_VCA0e4Rl_gtnmxx010000mbAxnaxvx__CA0PcLT0EC195o100_xx_xTxxxxF_cwf_basedie_dts_tempreadmax_all_jstcap;
+   Pat d7292909W9878128K_KL_VCA0e4Rl_gtnmxx010000mbAxnaxvx__CA0PcLT0EC195o100_xx_xTxxxxF_cwf_topdie_dts_tempreadmax_all_jstcap;
+   PList end_gracefully_Mscn_hvm400RPT8x_Cdie_global_scan;
+}

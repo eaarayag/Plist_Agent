@@ -5,6 +5,9 @@
 .env.*
 !.env.example
 
+# SSH credentials — contains private key paths and server addresses
+UserCode/config/ssh_config.ini
+
 # =============================================================================
 # Python
 # =============================================================================
