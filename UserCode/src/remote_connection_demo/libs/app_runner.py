@@ -33,7 +33,9 @@ class AppRunner:
 
         # ── Step 1: Create destination directory on CR ────────────────────
         self._section("BUNDLE EXECUTION: Create CR directory")
-        cr_directory = "/intel/hdmxpats/cwf/dev/jdcubero/ssh_client_test"
+        username = "jdcubero"
+        bundle_dir = "ssh_client_test"
+        cr_directory = f"/intel/hdmxpats/cwf/dev/{username}/{bundle_dir}"
 
         with SSHConnection(profile="CR") as conn:
             self._section("1. mkdir — create a remote directory for the bundle content")
@@ -52,8 +54,7 @@ class AppRunner:
             self._section("2. Upload a local file to the server")
             local_sample = Path(__file__).resolve().parent.parent / "data" / file_sample
             remote_target = (
-                f"/nfs/site/disks/mfg_cwf_001/jdcubero/cwf/a0/cwf/"
-                f"plists/workarea/b0.0p28_HVM/{file_sample}"
+                f"/tmp/{file_sample}"
             )
             upload_file(conn, local_path=local_sample, remote_path=remote_target)
 
