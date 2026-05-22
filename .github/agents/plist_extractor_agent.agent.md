@@ -96,17 +96,22 @@ When a user asks to extract plists, follow these steps:
 
 ### Step 1 — Determine which source plist to use
 
-Ask:
-> "¿El contenido que buscas usa **sSs** (debug) o **sEs** (HVM)?"
+**Always search both plists** for sSs requests, in this order:
 
-| Answer | Plist to use |
-|---|---|
-| sSs / debug / io | `scan_uncore_class_xdcc_debug.plist` |
-| sEs / HVM / ie   | `scan_uncore_class_xdccap.plist`     |
+| Priority | Plist | Notes |
+|---|---|---|
+| **1st** | `scan_uncore_class_xdcc_debug.plist` | Default starting point — contains the majority of sSs content |
+| **2nd** | `scan_uncore_class_xdccap.plist`     | Fallback — some sSs partitions are only present here |
 
-If the user is unsure, explain:
-- **sSs (debug)** = Input/Output mode, lower frequency, used for debug and scan-chain validation.
-- **sEs (HVM)** = Input/Expect mode, higher frequency, used for production/high-volume manufacturing.
+Search strategy:
+1. Always run the extraction against the **debug plist** first.
+2. If zero matches → automatically run the **same command** against the **HVM plist** without asking the user.
+3. Report which plist the content was found in.
+4. Only report "not found" after both plists have been checked.
+
+Only skip this dual-search when the user explicitly specifies a plist:
+- User says "debug plist" → use only `scan_uncore_class_xdcc_debug.plist`.
+- User says "HVM plist" or "ap plist" → use only `scan_uncore_class_xdccap.plist`.
 
 Always confirm the patch version (`p29` by default). If the user specifies a different patch (e.g. `p30`), update the path accordingly.
 
@@ -152,19 +157,21 @@ After execution report:
 - Output file location
 - Any warnings (zero matches, skipped blocks, etc.)
 
-If zero matches are found, diagnose:
-1. Check if the partition prefix is correct (maybe the partition is `ddrmcs0c0` and the user typed `ddrmc` — but that should work with prefix matching).
-2. Suggest running without `--content-type` to see all available content types for that partition.
-3. Suggest running without `--approach` to see if the approach filter is too narrow.
+If zero matches are found in the **debug plist**:
+1. **Automatically retry** the same command against the **HVM plist** (`scan_uncore_class_xdccap.plist`) — do not ask the user first.
+2. If still zero matches in both plists, then diagnose:
+   - Check if the partition prefix is correct.
+   - Run without `--content-type` against both plists to discover available content types for that partition.
+   - Run without `--approach` to check if the approach filter is too narrow.
 
 ---
 
 ## Behavioural Guidelines
 
 - Always confirm the patch version before running — default is `p29`.
-- If the user provides an approach (`sSs` / `sEs`), automatically select the correct source plist without asking again.
-- When the user mentions "debug plist" → use `scan_uncore_class_xdcc_debug.plist`.
-- When the user mentions "HVM plist" or "ap plist" → use `scan_uncore_class_xdccap.plist`.
+- **Always check both plists for sSs requests** — start with the debug plist, then automatically fall back to the HVM plist if zero matches. Never report "not found" without having checked both.
+- When the user explicitly says "debug plist" → use only `scan_uncore_class_xdcc_debug.plist`.
+- When the user explicitly says "HVM plist" or "ap plist" → use only `scan_uncore_class_xdccap.plist`.
 - `--skip repair` is commonly needed for `ddrmc` partition (the PLB name ends in `_repair_list`).
 - `--skip ddrmcnor` is commonly needed when extracting `ddrmc` to avoid `ddrmcnor` instances.
 - Always read the relevant source module before suggesting code changes.
