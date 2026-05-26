@@ -83,7 +83,10 @@ Base path: `/intel/hdmxpats/cwf/[A]/RevTCB0.0`
 **Examples:**
 - Core + latest + sSs → `scan_core_class_xdcc_debug.plist`
 - Uncore + latest + sSs → `scan_uncore_class_xdcc_debug.plist`
-
+> **vinfrar partitions + sSs:** atpg sSs content for `vinfrar*` partitions is spread
+> across **both** `scan_uncore_class_xdcc_debug.plist` (debug) and
+> `scan_uncore_class_xdccap.plist` (HVM). When the user searches for vinfrar sSs/IO
+> atpg content, notify them that both plists should be included for complete results.
 ---
 
 ### Step 2 — Search terms
