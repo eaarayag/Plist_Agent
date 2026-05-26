@@ -291,6 +291,7 @@ shell            = tcsh
 |---|---|---|
 | `Connection timed out` on `pip install` | Corporate proxy not configured | See **Installation** |
 | `FileNotFoundError: ~/.ssh/id_ed25519` | Key not generated yet | See **Configuration → Step 1** |
+| `FileNotFoundError: ~/.ssh/authorized_keys` | Wrong `key_path` — `authorized_keys` is a **server-side** file listing authorized public keys; it is not the private key. Set `key_path = ~/.ssh/id_ed25519` (the private key). | See **Configuration → Step 1** |
 | `AuthenticationException` | Key not authorized on server | See **Configuration → Step 2** |
 | `FileNotFoundError: ssh_config.ini` | Config file not created | See **Configuration → Step 3** |
 | `NoValidConnectionsError` | Wrong hostname or port | Verify `hostname` / `port` in `ssh_config.ini` |

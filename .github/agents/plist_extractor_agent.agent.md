@@ -166,6 +166,51 @@ If zero matches are found in the **debug plist**:
 
 ---
 
+## Output Name Convention
+
+When writing the output file or when called as a subagent, **always auto-derive the output name** — never ask the user to supply one.
+
+**Formula:** `{partitions joined with _}_{content-type}_{approach}`
+
+| Example parameters | Derived name |
+|---|---|
+| `--partition vinfrar6 --content-type atpg --approach sSs` | `vinfrar6_atpg_sSs` |
+| `--partition vinfrar6 vinfrar7 --content-type atpg --approach sSs` | `vinfrar6_vinfrar7_atpg_sSs` |
+| `--partition cgu --content-type atpg --approach sSs` | `cgu_atpg_sSs` |
+| `--partition ddrmc --content-type atpg --approach sEs` | `ddrmc_atpg_sEs` |
+
+Use this base name (with `.plist` suffix) as the `--output` path:
+`.\UserCode\src\bundle_debug_pats\data\{name}.plist`
+
+---
+
+## Subagent Response Format
+
+When invoked as a subagent by the **Bundle Debug Pats Agent**, after extraction completes return all of the following so Bundle Debug Pats Agent can build its command without asking the user:
+
+1. **Source plist(s) used** — which file(s) contained the content (`debug.plist`, `hvm.plist`, or both), with full paths.
+2. **Complete filter parameters** — `--plist` path(s), `--partition`, `--content-type`, `--approach`, `--skip` (if any).
+3. **Derived output name** — base name (no extension) following the Output Name Convention above. This becomes both `--output-name` and `--bundle-dir` in the bundle_debug_pats command.
+4. **Block count** — Hotreset / Content / PLB / Total extracted.
+
+> Never ask the user to provide an output name or source plist — derive both automatically.
+
+---
+
+## Domain Terminology
+
+Users sometimes use informal shorthand for approach names. Interpret them as follows:
+
+| User says | Meaning | CLI flag |
+|---|---|---|
+| "IO", "IO content", "IO mode" | sSs approach | `--approach sSs` |
+| "IE", "IE content", "HVM", "AP" | sEs approach | `--approach sEs` (+ use HVM plist) |
+
+> When a user says "IO", confirm before running: *"By 'IO' do you mean sSs approach content (`--approach sSs`)? Just confirming before I proceed."*  
+> Skip the confirmation if the user has already confirmed it in the current conversation.
+
+---
+
 ## Behavioural Guidelines
 
 - Always confirm the patch version before running — default is `p29`.
