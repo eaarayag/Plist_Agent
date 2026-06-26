@@ -59,10 +59,11 @@ class PlistFile:
 
 _RE_VERSION    = re.compile(r"^\s*Version\s+([\d.]+)\s*;")
 _RE_BLOCK_OPEN = re.compile(r"^\s*GlobalPList\s+(\S+)(.*?)\{")
-_RE_PLIST_CALL = re.compile(r"^\s*PList\s+(\S+)\s*;")
-_RE_PAT_CALL   = re.compile(r"^\s*Pat\s+(\S+)\s*;")
-_RE_PREBURST   = re.compile(r"\[\s*PreBurstPList\s+(\S+)\s*\]")
-_RE_POSTBURST  = re.compile(r"\[\s*PostBurstPList\s+(\S+)\s*\]")
+_RE_PLIST_CALL    = re.compile(r"^\s*PList\s+(\S+)\s*;")
+_RE_PAT_CALL      = re.compile(r"^\s*Pat\s+(\S+)\s*;")
+_RE_COMMENT_PAT   = re.compile(r"^\s*#\s*Pat\s+(\S+)\s*;")
+_RE_PREBURST      = re.compile(r"\[\s*PreBurstPList\s+(\S+)\s*\]")
+_RE_POSTBURST     = re.compile(r"\[\s*PostBurstPList\s+(\S+)\s*\]")
 
 
 # ─── Parser ───────────────────────────────────────────────────────────────────
@@ -166,6 +167,14 @@ class PlistParser:
                 if m:
                     current_entries.append(
                         PlistEntry(kind="Pat", name=m.group(1), raw=raw_line)
+                    )
+                    continue
+
+                # Commented Pat call  (#Pat <name>;)
+                m = _RE_COMMENT_PAT.match(line)
+                if m:
+                    current_entries.append(
+                        PlistEntry(kind="comment", name=m.group(1), raw=raw_line)
                     )
                     continue
 
