@@ -59,3 +59,10 @@ desktop.ini
 *.log
 *.tmp
 *.bak
+
+# =============================================================================
+# plist_converter — generated / working data files
+# =============================================================================
+UserCode/src/plist_converter/data/*.plist
+UserCode/src/plist_converter/data/names_*.list
+!UserCode/src/plist_converter/data/names_top_die_n_cpufdi_missed_only_begin.list
