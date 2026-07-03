@@ -40,6 +40,11 @@ python main.py -i <input.plist> -o <output_prefix>
 python main.py -i <input.plist> -o <output_dir>/
 ```
 
+```
+python.exe .\UserCode\src\three_set_dbg_plist_gen\main.py -i "M:\cwf\a0\cwf\plists\workarea\b0.0p31_HVM\plist_per_die_script\clean_scan_uncore_class_xdcc_debug.plist" -o ".\UserCode\src\three_set_dbg_plist_gen\data\p32_scan_uncore_class_xdcc_debug" -m exclude -l ".\UserCode\src\three_set_dbg_plist_gen\data\plb_for_exclude.list"
+```
+
+
 ### Full example commands
 
 ```bash
