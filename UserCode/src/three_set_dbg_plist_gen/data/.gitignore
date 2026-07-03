@@ -1,0 +1,3 @@
+# Generated output files — do not commit
+*.plist
+*_used_plists.list
